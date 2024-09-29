@@ -1,0 +1,12 @@
+wait for request containing 'master.m3u8'
+get headers and link from this request
+
+request 'master.m3u8' using the given headers
+download 'index-1.m3u8' or 'index-2.m3u8' from 'master.m3u8' using the initial headers
+
+use 'index-1.m3u8' or 'index-2.m3u8' as input for 'main.py'
+use the same headers from 'master.m3u8'
+dynamically update 'Host' on the headers to correspond to the current domain
+
+concatenate everything with 'concat.py'
+delete the initial files
