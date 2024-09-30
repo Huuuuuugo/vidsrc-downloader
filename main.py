@@ -10,6 +10,20 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import psutil
 
+def get_headers_dict(headers_str: str):
+    headers_list = headers_str.split('\n')
+    headers_dict = {}
+
+    for header in headers_list:
+        matches = re.findall(r"(.+?):(.+)", header)
+        if matches:
+            key = matches[0][0].strip()
+            value = matches[0][1].strip()
+
+            headers_dict.update({key: value})
+    
+    return headers_dict
+
 def get_meta_m3u8(url: str):
     meta_dict = {
         "title": None,
@@ -35,7 +49,7 @@ def get_meta_m3u8(url: str):
 
         if re.match(r"^.*master\.m3u8$", request.url):
             meta_dict["url"] = request.url
-            meta_dict["headers"] = request.headers.as_string()
+            meta_dict["headers"] = get_headers_dict(request.headers.as_string())
 
             driver.quit()
 
@@ -77,6 +91,7 @@ def get_meta_m3u8(url: str):
 
 
 if __name__ == "__main__":
+    from pprint import pprint
     output = get_meta_m3u8("https://vidsrc.net/embed/tv?imdb=tt3559912&season=1&episode=1")
 
-    print(output)
+    pprint(output)
