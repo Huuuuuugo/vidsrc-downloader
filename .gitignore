@@ -1,4 +1,5 @@
 __pycache__/
+venv/
 
 *.m3u8
 *.mp4
