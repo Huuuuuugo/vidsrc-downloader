@@ -33,6 +33,7 @@ def get_meta_m3u8(url: str):
         "headers": None,
     }
     options = Options()
+    options.add_argument('--headless')
 
     # portable setup
     service = Service(f"{os.getcwd()}\\GoogleChromePortable\\GoogleChromePortable.exe")
@@ -55,41 +56,47 @@ def get_meta_m3u8(url: str):
 
             driver.quit()
 
-    driver = uc.Chrome(service = service, options = options, version_main = 129)
-    driver.request_interceptor = interceptor
+    try:
+        driver = uc.Chrome(service = service, options = options, version_main = 129)
+        driver.request_interceptor = interceptor
 
-    driver.get(url)
+        driver.get(url)
 
-    # wait for obstructing element to appear and then remove it
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "dontfoid"))
-    )
-    driver.execute_script("document.getElementById('dontfoid').remove();")
+        # wait for obstructing element to appear and then remove it
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "dontfoid"))
+        )
+        driver.execute_script("document.getElementById('dontfoid').remove();")
 
-    # switch to player iframe
-    iframe = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "player_iframe"))
-    )
-    driver.switch_to.frame(iframe)
+        # switch to player iframe
+        iframe = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "player_iframe"))
+        )
+        driver.switch_to.frame(iframe)
 
-    # get title of the video
-    title = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "iframe_title"))
-    )
-    meta_dict["title"] = title.text
+        # get title of the video
+        title = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "iframe_title"))
+        )
+        meta_dict["title"] = title.text
 
-    # click the play button
-    play_btn = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "pl_but"))
-    )
-    play_btn.click()
-
-    # wait for the browser to close
-    browser_pid = driver.service.process.pid
-    while psutil.pid_exists(browser_pid):
-        time.sleep(0.5)
+        # click the play button
+        play_btn = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "pl_but"))
+        )
+        play_btn.click()
     
-    return meta_dict
+    except Exception as e:
+        print(e)
+        driver.quit()
+
+    finally:
+        # wait for the browser to close
+        browser_pid = driver.service.process.pid
+        while psutil.pid_exists(browser_pid):
+            time.sleep(0.5)
+        
+        return meta_dict
 
 def get_parts_list(meta_dict: dict, output_dir: str = ''):
     if output_dir[-1] not in ('/', '\\'):
