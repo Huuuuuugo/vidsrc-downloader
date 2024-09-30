@@ -10,6 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import psutil
 
+from downloader import Download
+
 def get_headers_dict(headers_str: str):
     headers_list = headers_str.split('\n')
     headers_dict = {}
@@ -89,9 +91,39 @@ def get_meta_m3u8(url: str):
     
     return meta_dict
 
+def get_parts_list(meta_dict: dict, output_dir: str = ''):
+    if output_dir[-1] not in ('/', '\\'):
+        output_dir += '/'
+
+    Download(meta_dict['url'], f"{output_dir}master.m3u8", meta_dict['headers']).start()
+    Download.wait_downloads()
+
+    parts_urls = []
+    with open(f"{output_dir}master.m3u8", 'r') as meta_file:
+        for url in meta_file:
+            url = url.strip()
+            if re.match(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)", url):
+                parts_urls.append(url)
+
+    index = 1
+    for url in parts_urls:
+        try:
+            download = Download(url, f"{output_dir}index-{index}.m3u8", meta_dict['headers'])
+            download.start()
+            Download.wait_downloads()
+        
+        except Exception as e:
+            print(e)
+            # TODO FIXME: update downloader to remove object from list when finished or when exception is raised
+            if Download.download_list:
+                Download.download_list.pop()
+        
+        finally:
+            index+=1
+
+
 
 if __name__ == "__main__":
-    from pprint import pprint
-    output = get_meta_m3u8("https://vidsrc.net/embed/tv?imdb=tt3559912&season=1&episode=1")
+    meta_info = get_meta_m3u8("https://vidsrc.net/embed/tv?imdb=tt3559912&season=1&episode=1")
 
-    pprint(output)
+    get_parts_list(meta_info, "temp")
