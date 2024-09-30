@@ -1,3 +1,4 @@
+import subprocess
 import time
 import os
 import re
@@ -153,6 +154,36 @@ def download_parts(m3u8_path: str, headers: dict, output_dir: str = ''):
         Download.stop_all()
         # TODO FIXME: update downloader to remove object from list when finished or when exception is raised
         Download.download_list.clear()
+    
+def concat(input_dir: str, output_file: str):
+    if input_dir[-1] not in ('/', '\\'):
+        input_dir += '/'
+
+    # create function to properly order the files inside the given directory
+    def extract_number(filename):
+        match = re.search(r'(\d+)', filename)
+        return int(match.group(0)) if match else 0
+
+    # get files list and order them
+    parts = os.listdir(input_dir)
+    parts = sorted(parts, key=extract_number)
+
+    # create a file with instructions for ffmpeg
+    playlist = [f"file '{os.path.abspath(input_dir)}/{part}'\n".replace('\\', '/') for part in parts]
+    with open(f"{input_dir}playlist.txt", 'w') as output:
+        output.writelines(playlist)
+
+    # run ffmpeg to concatenate files
+    print(os.getcwd())
+    subprocess.run(["ffmpeg", 
+                    "-f", "concat",
+                    "-safe", "0", 
+                    "-i", f"{input_dir}playlist.txt", 
+                    "-c", "copy", f"{output_file}"
+                    ])
+
+    # delete instructions file
+    os.remove(f"{input_dir}playlist.txt")
 
 
 if __name__ == "__main__":
@@ -160,8 +191,11 @@ if __name__ == "__main__":
 
     download_m3u8_files(meta_info, "temp")
 
+    #TODO: add option to choose resolution
     try:
         download_parts('temp/index-2.m3u8', meta_info['headers'], 'temp')
     
     except Exception as e:
         download_parts('temp/index-1.m3u8', meta_info['headers'], 'temp')
+
+    concat('temp/parts/', '1x1.mp4')
