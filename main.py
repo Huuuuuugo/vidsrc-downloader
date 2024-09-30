@@ -98,7 +98,7 @@ def get_meta_m3u8(url: str):
         
         return meta_dict
 
-def get_parts_list(meta_dict: dict, output_dir: str = ''):
+def download_m3u8_files(meta_dict: dict, output_dir: str = ''):
     if output_dir[-1] not in ('/', '\\'):
         output_dir += '/'
 
@@ -128,9 +128,40 @@ def get_parts_list(meta_dict: dict, output_dir: str = ''):
         finally:
             index+=1
 
+def download_parts(m3u8_path: str, headers: dict, output_dir: str = ''):
+    if output_dir[-1] not in ('/', '\\'):
+        output_dir += '/'
+    
+    os.makedirs(f"{output_dir}parts")
+
+    try:
+        with open(m3u8_path) as playlist:
+            for url in playlist:
+                url = url.strip()
+                if not re.match(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)", url):
+                    continue
+
+                file_name = f"{output_dir}parts/{re.findall(r".*/(.+)\.", url)[0]}.mp4"
+                print(file_name)
+
+                download = Download(url, file_name, headers)
+                download.start()
+            
+        Download.wait_downloads(False)
+    
+    finally:
+        Download.stop_all()
+        # TODO FIXME: update downloader to remove object from list when finished or when exception is raised
+        Download.download_list.clear()
 
 
 if __name__ == "__main__":
     meta_info = get_meta_m3u8("https://vidsrc.net/embed/tv?imdb=tt3559912&season=1&episode=1")
 
-    get_parts_list(meta_info, "temp")
+    download_m3u8_files(meta_info, "temp")
+
+    try:
+        download_parts('temp/index-2.m3u8', meta_info['headers'], 'temp')
+    
+    except Exception as e:
+        download_parts('temp/index-1.m3u8', meta_info['headers'], 'temp')
