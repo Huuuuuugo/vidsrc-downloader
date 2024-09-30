@@ -1,1 +1,6 @@
 requests
+selenium
+undetected_chromedriver
+selenium-wire
+blinker==1.7.0
+setuptools
