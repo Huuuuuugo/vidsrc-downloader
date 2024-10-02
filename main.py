@@ -1,5 +1,7 @@
+from tempfile import TemporaryDirectory
 import subprocess
 import time
+import sys
 import os
 import re
 
@@ -103,8 +105,8 @@ def download_m3u8_files(meta_dict: dict, output_dir: str = ''):
     if output_dir[-1] not in ('/', '\\'):
         output_dir += '/'
 
-    Download(meta_dict['url'], f"{output_dir}master.m3u8", meta_dict['headers']).start()
-    Download.wait_downloads()
+    Download(meta_dict['url'], f"{output_dir}master.m3u8", meta_dict['headers'], max_retries=6).start()
+    Download.wait_downloads(False)
 
     parts_urls = []
     with open(f"{output_dir}master.m3u8", 'r') as meta_file:
@@ -116,15 +118,9 @@ def download_m3u8_files(meta_dict: dict, output_dir: str = ''):
     index = 1
     for url in parts_urls:
         try:
-            download = Download(url, f"{output_dir}index-{index}.m3u8", meta_dict['headers'])
+            download = Download(url, f"{output_dir}index-{index}.m3u8", meta_dict['headers'], max_retries=6)
             download.start()
-            Download.wait_downloads()
-        
-        except Exception as e:
-            print(e)
-            # TODO FIXME: update downloader to remove object from list when finished or when exception is raised
-            if Download.download_list:
-                Download.download_list.pop()
+            Download.wait_downloads(False)
         
         finally:
             index+=1
@@ -145,14 +141,13 @@ def download_parts(m3u8_path: str, headers: dict, output_dir: str = ''):
                 file_name = f"{output_dir}parts/{re.findall(r".*/(.+)\.", url)[0]}.mp4"
                 print(file_name)
 
-                download = Download(url, file_name, headers)
+                download = Download(url, file_name, headers, max_retries=6)
                 download.start()
-            
+                            
         Download.wait_downloads(False)
     
     finally:
         Download.stop_all()
-        # TODO FIXME: update downloader to remove object from list when finished or when exception is raised
         Download.download_list.clear()
     
 def concat(input_dir: str, output_file: str):
@@ -187,15 +182,33 @@ def concat(input_dir: str, output_file: str):
 
 
 if __name__ == "__main__":
-    meta_info = get_meta_m3u8("https://vidsrc.net/embed/tv?imdb=tt3559912&season=1&episode=1")
+    # get cli arguments
+    url = ''
+    output_dir = ''
 
-    download_m3u8_files(meta_info, "temp")
+    if len(sys.argv) == 2:
+        url = sys.argv[1]
 
-    #TODO: add option to choose resolution
-    try:
-        download_parts('temp/index-2.m3u8', meta_info['headers'], 'temp')
+    elif len(sys.argv) == 3:
+        url = sys.argv[1]
+        output_dir = sys.argv[2]
+        if output_dir[-1] not in ('/', '\\'):
+            output_dir += '/'
+
+    else:
+        exit("Usage: python main.py <url> <output directory>")
     
-    except Exception as e:
-        download_parts('temp/index-1.m3u8', meta_info['headers'], 'temp')
+    # start program
+    meta_info = get_meta_m3u8(url)
 
-    concat('temp/parts/', '1x1.mp4')
+    with TemporaryDirectory(dir=output_dir) as tempdir:
+        download_m3u8_files(meta_info, tempdir)
+
+        #TODO: add option to choose resolution
+        try:
+            download_parts(f"{tempdir}/index-2.m3u8", meta_info['headers'], tempdir)
+        
+        except Exception as e:
+            download_parts(f"{tempdir}/index-1.m3u8", meta_info['headers'], tempdir)
+
+        concat(f"{tempdir}/parts", f"{output_dir}{meta_info['title']}.mp4")
