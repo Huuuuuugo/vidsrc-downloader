@@ -6,6 +6,10 @@ import os
 import requests
 
 #TODO: add option to use original file name
+#TODO FIXME: some requests with no Range support are appending to the pre-existing file instead of clearing it
+#TODO: add method to wait for a single object
+#TODO: add option to not request file size
+#TODO: add method to easily apply retry logic in case an request fails
 class Download():
     """A class to manage the download of files, supporting resumable downloads and progress tracking.
 
@@ -39,7 +43,7 @@ class Download():
     download_list = []
     _progress_lines_printed = 0
 
-    def __init__(self, url: str, output_file: str, headers: dict | None = None):
+    def __init__(self, url: str, output_file: str, headers: dict | None = None, max_retries: int = 0, base_retry_delay: float = 0.5):
         """Initializes a Download instance.
 
         Parameters:
@@ -70,13 +74,11 @@ class Download():
         """
         
         if not isinstance(url, str):
-            Download.stop_all()
             message = f"Invalid type for 'url' attribute."
             raise TypeError(message)
 
         for download in Download.download_list:
             if download.output_file == output_file:
-                Download.stop_all()
                 message = f"Invalid value for 'output_file' attribute. There's already a Download object using the file at '{output_file}'"
                 raise ValueError(message)
         
@@ -92,12 +94,24 @@ class Download():
             headers = headers.copy()
 
         # make a request to get the total size of the file
-        request_size = requests.get(url, headers=headers, stream=True)
+        for attempt in range(max_retries + 1):
+            request_size = requests.get(url, headers=headers, stream=True)
+            if request_size.status_code not in (200, 206):
+                message = f"Unexpected status code when requesting file: {request_size.status_code}. Retrying..."
+                warnings.warn(message, RuntimeWarning)
+
+                # exponentially increase wait time before retrying
+                wait_time = base_retry_delay * (2 ** attempt)
+                time.sleep(wait_time)
+
+            else:
+                break
+
         if request_size.status_code not in (200, 206):
-            Download.stop_all()
             message = f"Unexpected status code when requesting file size: {request_size.status_code}."
             raise requests.RequestException(message)
         
+        # store total_size inside a property
         try:
             self.total_size = int(request_size.headers['Content-Length'])
             request_size.close()
@@ -114,20 +128,30 @@ class Download():
             self.written_bytes = 0
         
         # set range to resume download if any byte has already been written
-        if self.written_bytes:
+        if self.total_size == 0 or self.written_bytes == 0:
+            self.response = request_size
+
+        else:
             headers.update({
                 "Range": f"bytes={self.written_bytes}-"
             })
 
-        if self.written_bytes == self.total_size:
-            self.response = request_size
-        else:
-            self.response = requests.get(url, headers=headers, stream=True)
+            for attempt in range(max_retries + 1):
+                self.response = requests.get(url, headers=headers, stream=True)
+                if request_size.status_code not in (200, 206):
+                    message = f"Unexpected status code when requesting file range: {request_size.status_code}. Retrying..."
+                    warnings.warn(message, RuntimeWarning)
+
+                    # exponentially increase wait time before retrying
+                    wait_time = base_retry_delay * (2 ** attempt)
+                    time.sleep(wait_time)
+
+                else:
+                    break
         
-        if self.response.status_code not in (200, 206):
-            Download.stop_all()
-            message = f"Unexpected status code: {self.response.status_code}."
-            raise requests.RequestException(message)
+            if self.response.status_code not in (200, 206):
+                message = f"Unexpected status code when requesting file range: {self.response.status_code}."
+                raise requests.RequestException(message)
 
         Download.download_list.append(self)
 
@@ -244,6 +268,11 @@ class Download():
 
         def download():
             self.is_running = True
+            # clear file if it doesn't support resuming
+            if not self.total_size:
+                with open(self.output_file, 'wb') as file:
+                    file.write(b'')
+            
             with open(self.output_file, 'ab') as file:
                 for chunk in self.response.iter_content(chunk_size=8192):
                     if chunk:
@@ -259,13 +288,16 @@ class Download():
                     
             self.is_running = False
             self._interrupt_download = False
+            Download.download_list.pop(Download.download_list.index(self))
 
         if self.progress >= 100:
+            Download.download_list.pop(Download.download_list.index(self))
             message = "Can't start a download that's already finished."
             warnings.warn(message, RuntimeWarning)
             return
         
         if self.is_running:
+            Download.download_list.pop(Download.download_list.index(self))
             message = "Can't start a download that's already running."
             warnings.warn(message, RuntimeWarning)
             return
@@ -297,28 +329,14 @@ class Download():
         
 
 if __name__ == "__main__":
-    headers = {
-    "Host": "tmstr3.luminousstreamhaven.com",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Referer": "https://ate60vs7zcjhsjo5qgv8.com/",
-    "Origin": "https://ate60vs7zcjhsjo5qgv8.com",
-    "DNT": "1",
-    "Connection": "keep-alive",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "cross-site",
-    "TE": "trailers"
-}
+    import sys
 
+    if len(sys.argv) != 3:
+        exit("Example usage: python downloader.py <url> <output-file>")
 
+    url = sys.argv[1]
+    output_file = sys.argv[2]
 
-    # download1 = Download(r"https://tmstr3.luminousstreamhaven.com/stream_new/H4sIAAAAAAAAAw3My3KCMBQA0F_KA6bQXTsjCDaxBm4C2eWhk4FQGLUW.fq6O6tjcn_JLPLujRp7wf5lYlyWI5In3pvLu4GaqBjmU5MXHI_JCYmpKXR73H8gS.bk2AbdkkAYWvemhKdTNeaTNBLSSUkumPLMlfKoppGoAbbzTi68rVPbLQKke2rsHl94gbarqJRAz.U9Qhlm9lP98TEUmuCTJTmoXbj2kDKl_K.hVdJPsW9wsbkuLD2NlYQ5BZKtfqcTBgxJdS_sVkc3SiEibI38_G4HvvLpdQ2CQqxvZ6U7XaYPgdAGuI4HGm..1L0fCuzpeOUx4H99sNp9IQEAAA--/index-1.m3u8", "test.m3u8", headers=headers)
-    download2 = Download(r"https://stat3.1frnk7ackf.xyz/content/e17dd171f36bd81c049f26b6b9f83590/1/p-1.html", "example.avi")
-
-    # download1.start()
-    download2.start()
+    Download(url, output_file, max_retries=6).start()
 
     Download.wait_downloads()
